@@ -12,6 +12,9 @@ import torch.distributed as dist
 import torch._inductor.config as config
 from torch.nn.parallel import DistributedDataParallel as DDP
 
+
+from soap import SOAP
+
 with open(sys.argv[0]) as f:
     code = f.read()
 
@@ -19,12 +22,6 @@ with open(sys.argv[0]) as f:
 # OrthgonalNesterov optimizer
 
 class OrthogonalNesterov(torch.optim.Optimizer):
-    """
-    Some warnings: This optimizer assumes that all parameters passed in are 2D.
-    It shouldn't be used for the embedding layer, the final fully connected layer, or {0,1}-D
-    parameters; those should be optimized by a standard method (e.g., AdamW).
-    To use it with 4D convolutional filters, it works well to flatten their last 3 dimensions.
-    """
     def __init__(self, params, lr=0.02, momentum=0.9, nesterov=True, zeropower_iters=5):
         defaults = dict(lr=lr, momentum=momentum, nesterov=nesterov, zeropower_iters=zeropower_iters)
         super().__init__(params, defaults)
@@ -241,8 +238,9 @@ class GPT(nn.Module):
 
     def configure_optimizers(self, weight_decay, learning_rate, betas):
         optimizer = CombinedOptimizer([
-            torch.optim.AdamW(self.lm_head.parameters(), lr=learning_rate, betas=betas, weight_decay=0),
-            OrthogonalNesterov(self.transformer.h.parameters(), lr=10 * learning_rate, momentum=0.95)
+            torch.optim.AdamW(self.lm_head.parameters(), lr=0.0018, betas=betas, weight_decay=0),
+            SOAP(self.transformer.h.parameters(), lr=learning_rate, betas=(.95, .95), weight_decay=0, precondition_frequency=10)
+            #OrthogonalNesterov(self.transformer.h.parameters(), lr=10 * learning_rate, momentum=0.95)
         ])
         return optimizer
 
