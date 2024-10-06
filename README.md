@@ -1,6 +1,6 @@
 # Modded-NanoGPT (SOAP optimizer experiments)
 
-This is a fork of Modded-NanoGPT by Keller Jordan, which is a variant of the [PyTorch GPT-2 trainer](https://github.com/karpathy/llm.c/blob/7b929300217ff1a974b63791a228928b39b26409/train_gpt2.py) from
+This is a fork of [Modded-NanoGPT](https://github.com/KellerJordan/modded-nanogpt) by Keller Jordan, which is a variant of the [PyTorch GPT-2 trainer](https://github.com/karpathy/llm.c/blob/7b929300217ff1a974b63791a228928b39b26409/train_gpt2.py) from
 Andrej Karpathy's [llm.c](https://github.com/karpathy/llm.c) repo. The original description is pasted at the end of this file.
 
 
