@@ -230,7 +230,7 @@ class GPT(nn.Module):
 
     def configure_optimizers(self, weight_decay, learning_rate, betas):
         optimizer = CombinedOptimizer([
-            torch.optim.AdamW(self.lm_head.parameters(), lr=0.0018, betas=betas, weight_decay=0),
+            torch.optim.AdamW(self.lm_head.parameters(), lr=learning_rate, betas=betas, weight_decay=0),
             # SOAP(self.transformer.h.parameters(), lr=learning_rate, betas=(.95, .95), weight_decay=0, precondition_frequency=10)
             # OrthogonalNesterov(self.transformer.h.parameters(), lr=10 * learning_rate, momentum=0.95)
             torch.optim.AdamW(self.transformer.h.parameters(), lr=learning_rate, weight_decay=weight_decay, eps=1e-10, fused=True)
