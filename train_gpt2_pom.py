@@ -12,7 +12,7 @@ import torch.distributed as dist
 import torch._inductor.config as config
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-
+import pom
 from soap import SOAP
 
 with open(sys.argv[0]) as f:
@@ -128,36 +128,26 @@ def rmsnorm(x0, eps=1e-6):
     x = x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + eps)
     return x.type_as(x0)
 
-class CausalSelfAttention(nn.Module):
 
+class CausalSelfPoM(nn.Module):
     def __init__(self, config):
         super().__init__()
+        self.degree = config.degree
+        self.expand = config.expand
         self.n_head = config.n_head
         self.n_embd = config.n_embd
         self.head_dim = self.n_embd // self.n_head
-        assert self.n_embd % self.n_head == 0
-        # key, query, value projections for all heads, but in a batch
-        self.c_attn = nn.Linear(self.n_embd, 3 * self.n_embd, bias=False)
-        # output projection
-        self.c_proj = nn.Linear(self.n_embd, self.n_embd, bias=False)
+        self.pom = pom.PoM(self.n_embd, self.degree, self.expand, True)
         self.rotary = Rotary(self.head_dim)
 
     def forward(self, x):
-        B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
-        # calculate query, key, values for all heads in batch and move head forward to be the batch dim
-        qkv = self.c_attn(x)
-        q, k, v = qkv.split(self.n_embd, dim=2)
-        k = k.view(B, T, self.n_head, self.head_dim)
-        q = q.view(B, T, self.n_head, self.head_dim)
-        v = v.view(B, T, self.n_head, self.head_dim)
-        cos, sin = self.rotary(q)
-        q = apply_rotary_emb(q, cos, sin)
-        k = apply_rotary_emb(k, cos, sin)
-        y = F.scaled_dot_product_attention(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), is_causal=True)
-        y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
-        # output projection
-        y = self.c_proj(y)
-        return y
+        B, T, C = x.size()
+        mask = torch.tril(torch.ones((T, T))).unsqueeze(0)
+        x = x.view(B, T, self.n_head, self.head_dim)
+        cos, sin = self.rotary(x)
+        x = apply_rotary_emb(x, cos, sin)
+        x = x.view(B, T, C)
+        return self.pom(x, x, mask)
 
 class MLP(nn.Module):
 
@@ -176,7 +166,7 @@ class Block(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.attn = CausalSelfAttention(config)
+        self.attn = CausalSelfPoM(config)
         self.mlp = MLP(config)
         self.attn_scale = (1 / (2 * config.n_layer)**0.5)
 
@@ -193,6 +183,8 @@ class GPTConfig:
     vocab_size: int = 50257
     n_layer: int = 12
     n_head: int = 12
+    degree: int = 2
+    expand: int = 2
     n_embd: int = 768
 
 class GPT(nn.Module):
@@ -240,9 +232,8 @@ class GPT(nn.Module):
         optimizer = CombinedOptimizer([
             torch.optim.AdamW(self.lm_head.parameters(), lr=0.0018, betas=betas, weight_decay=0),
             # SOAP(self.transformer.h.parameters(), lr=learning_rate, betas=(.95, .95), weight_decay=0, precondition_frequency=10)
-            #OrthogonalNesterov(self.transformer.h.parameters(), lr=10 * learning_rate, momentum=0.95)
-            torch.optim.AdamW(self.transformer.h.parameters(), lr=learning_rate, weight_decay=weight_decay, eps=1e-10,
-                              fused=True)
+            # OrthogonalNesterov(self.transformer.h.parameters(), lr=10 * learning_rate, momentum=0.95)
+            torch.optim.AdamW(self.transformer.h.parameters(), lr=learning_rate, weight_decay=weight_decay, eps=1e-10, fused=True)
         ])
         return optimizer
 
@@ -382,10 +373,10 @@ if __name__ == "__main__":
     # init the model from scratch
     num_vocab = 50257
     model_config = {
-        "d12": GPTConfig(vocab_size=num_vocab, n_layer=12, n_head=12, n_embd=768),
-        "d24": GPTConfig(vocab_size=num_vocab, n_layer=24, n_head=16, n_embd=1024),
-        "d36": GPTConfig(vocab_size=num_vocab, n_layer=36, n_head=20, n_embd=1280),
-        "d48": GPTConfig(vocab_size=num_vocab, n_layer=48, n_head=25, n_embd=1600),
+        "d12": GPTConfig(vocab_size=num_vocab, n_layer=12, n_head=12, degree=2, expand=2, n_embd=768),
+        "d24": GPTConfig(vocab_size=num_vocab, n_layer=24, n_head=16, degree=2, expand=2, n_embd=1024),
+        "d36": GPTConfig(vocab_size=num_vocab, n_layer=36, n_head=20, degree=2, expand=2, n_embd=1280),
+        "d48": GPTConfig(vocab_size=num_vocab, n_layer=48, n_head=25, degree=2, expand=2, n_embd=1600),
     }[args.model]
     model = GPT(model_config)
     model = model.cuda()
