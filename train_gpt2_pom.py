@@ -138,15 +138,15 @@ class CausalSelfPoM(nn.Module):
         self.n_embd = config.n_embd
         self.head_dim = self.n_embd // self.n_head
         self.pom = pom.PoM(self.n_embd, self.degree, self.expand, True)
-        self.rotary = Rotary(self.head_dim)
+        # self.rotary = Rotary(self.head_dim)
 
     def forward(self, x):
         B, T, C = x.size()
         mask = torch.tril(torch.ones((T, T))).unsqueeze(0)
-        x = x.view(B, T, self.n_head, self.head_dim)
-        cos, sin = self.rotary(x)
-        x = apply_rotary_emb(x, cos, sin)
-        x = x.view(B, T, C)
+        # x = x.view(B, T, self.n_head, self.head_dim)
+        # cos, sin = self.rotary(x)
+        # x = apply_rotary_emb(x, cos, sin)
+        # x = x.view(B, T, C)
         return self.pom(x, x, mask)
 
 class MLP(nn.Module):
@@ -192,6 +192,9 @@ class GPT(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
+        self.n_head = config.n_head
+        self.n_embd = config.n_embd
+        self.head_dim = self.n_embd // self.n_head
 
         self.transformer = nn.ModuleDict(dict(
             wte = nn.Embedding(config.vocab_size, config.n_embd),
@@ -199,6 +202,7 @@ class GPT(nn.Module):
         ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying
+        self.rotary = Rotary(self.head_dim)
 
     def forward(self, idx, targets=None, return_logits=True):
         b, t = idx.size()
@@ -206,6 +210,12 @@ class GPT(nn.Module):
 
         # forward the GPT model itself
         x = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
+
+        B, T, C = x.shape
+        x = x.view(B, T, self.n_head, self.head_dim)
+        cos, sin = self.rotary(x)
+        x = apply_rotary_emb(x, cos, sin)
+        x = x.view(B, T, C)
 
         for block in self.transformer.h:
             x = block(x)
