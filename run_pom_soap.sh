@@ -1,0 +1,13 @@
+torchrun --standalone --nproc_per_node=4 train_gpt2_pom_soap.py \
+    --input_bin "data/fineweb10B/fineweb_train_*.bin" \
+    --input_val_bin "data/fineweb10B/fineweb_val_*.bin" \
+    --model d12 \
+    --batch_size 32 \
+    --sequence_length 1024 \
+    --val_loss_every 128 \
+    --num_iterations 7000 \
+    --weight_decay 0.5 \
+    --warmup_iters 250 \
+    --warmdown_iters 2000 \
+    --learning_rate .0018 \
+    --accumulation 16
