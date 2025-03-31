@@ -136,7 +136,7 @@ class CausalSelfPoM(nn.Module):
         self.n_head = config.n_head
         self.n_embd = config.n_embd
         self.head_dim = self.n_embd // self.n_head
-        self.pom = pom.PoM(self.n_embd, self.degree, self.expand, True)
+        self.pom = pom.PoM(self.n_embd, self.degree, self.expand, False)
         # self.rotary = Rotary(self.head_dim)
 
     def forward(self, x):
