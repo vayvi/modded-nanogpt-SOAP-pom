@@ -12,8 +12,8 @@ import torch.distributed as dist
 import torch._inductor.config as config
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-import pom
-from soap import SOAP
+import models.pom as pom
+from optimizers.soap import SOAP
 torch.set_float32_matmul_precision('high')
 
 with open(sys.argv[0]) as f:

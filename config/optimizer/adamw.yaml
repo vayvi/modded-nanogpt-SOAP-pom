@@ -1,0 +1,6 @@
+_target_: optimizers.adamw_optimizer.AdamWOptimizer
+
+lr: 0.0018
+betas: [0.9, 0.95]
+eps: 1e-8
+weight_decay: 0.5 

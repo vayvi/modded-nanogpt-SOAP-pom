@@ -1,4 +1,4 @@
-torchrun --standalone --nproc_per_node=4 train_gpt2_pom_soap.py \
+torchrun --standalone --nproc_per_node=1 train_gpt2_pom_soap.py \
     --input_bin "data/fineweb10B/fineweb_train_*.bin" \
     --input_val_bin "data/fineweb10B/fineweb_val_*.bin" \
     --model d12 \

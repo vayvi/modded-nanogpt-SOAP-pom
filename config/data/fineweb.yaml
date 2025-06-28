@@ -1,0 +1,4 @@
+train:
+  input_bin: "data/fineweb10B/fineweb_train_*.bin"
+val:
+  input_bin: "data/fineweb10B/fineweb_val_*.bin" 

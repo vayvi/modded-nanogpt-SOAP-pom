@@ -13,7 +13,7 @@ import torch._inductor.config as config
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 
-from soap import SOAP
+from optimizers.soap import SOAP
 
 with open(sys.argv[0]) as f:
     code = f.read()

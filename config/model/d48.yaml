@@ -1,0 +1,7 @@
+_target_: models.gpt.GPT
+vocab_size: 50257
+n_layer: 48
+n_head: 25
+degree: 2
+expand: 2
+n_embd: 1600 
