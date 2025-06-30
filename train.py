@@ -12,12 +12,36 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from omegaconf import DictConfig, OmegaConf
 import hydra
 from hydra.utils import instantiate
+import wandb
+from rich.progress import Progress, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn, MofNCompleteColumn, SpinnerColumn, ProgressColumn
+from rich.console import Console
+from rich.text import Text
 
-from models import GPT
 from data import DistributedDataLoader
 
 # Set float32 matmul precision to match reference implementation
 torch.set_float32_matmul_precision('high')
+
+class SpeedColumn(ProgressColumn):
+    """Custom column to display training speed"""
+    
+    def __init__(self):
+        super().__init__()
+        self.last_time = time.time()
+        self.last_step = 0
+        self.speed = 0.0
+    
+    def render(self, task):
+        current_time = time.time()
+        current_step = task.completed
+        
+        # Update speed calculation every second
+        if current_time - self.last_time >= 1.0 and current_step > self.last_step:
+            self.speed = (current_step - self.last_step) / (current_time - self.last_time)
+            self.last_time = current_time
+            self.last_step = current_step
+        
+        return Text(f"{self.speed:.2f} it/s", style="bold yellow")
 
 def print0(*args, **kwargs):
     """Modified print that only prints from the master process."""
@@ -57,6 +81,10 @@ def main(cfg: DictConfig):
     """Main training function."""
     print0(f"Running pytorch {torch.version.__version__}")
     print0(f"Configuration:\n{OmegaConf.to_yaml(cfg)}")
+    dict_cfg = OmegaConf.to_container(cfg, resolve=True)
+    
+    # Set up wandb
+    wandb.init(project="pom_archi", entity="imaginelab", config=dict_cfg)
     
     # Set up distributed training
     assert torch.cuda.is_available()
@@ -123,6 +151,28 @@ def main(cfg: DictConfig):
         logfile = log_dir / "log.txt"
         logfile.touch()  # create empty log file
     
+    # Set up rich progress bar (only for master process)
+    console = Console()
+    if master_process:
+        progress = Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]Training", justify="right"),
+            BarColumn(bar_width=None),
+            "[progress.percentage]{task.percentage:>3.1f}%",
+            "•",
+            MofNCompleteColumn(),
+            "•",
+            SpeedColumn(),
+            "•",
+            TimeElapsedColumn(),
+            "•", 
+            TimeRemainingColumn(),
+            console=console,
+            refresh_per_second=4,
+        )
+        progress.start()
+        task = progress.add_task("Training", total=cfg.training.num_iterations)
+    
     # Training loop
     for step in range(cfg.training.num_iterations + 1):
         last_step = (step == cfg.training.num_iterations)
@@ -140,10 +190,13 @@ def main(cfg: DictConfig):
             dist.all_reduce(val_loss, op=dist.ReduceOp.AVG)
             val_loss /= cfg.evaluation.val_max_steps
             
-            print0(f"val loss {val_loss}")
-            if master_process and logfile is not None:
-                with open(logfile, "a") as f:
-                    f.write(f"s:{step} tel:{val_loss}\n")
+            # Log validation loss to wandb
+            if master_process:
+                wandb.log({"val_loss": val_loss.item(), "step": step})
+                print0(f"val loss {val_loss:.4f}")
+                if logfile is not None:
+                    with open(logfile, "a") as f:
+                        f.write(f"s:{step} tel:{val_loss}\n")
         
         # Save checkpoint
         if master_process and (last_step or (cfg.evaluation.save_every > 0 and step % cfg.evaluation.save_every == 0)):
@@ -194,6 +247,20 @@ def main(cfg: DictConfig):
         dist.all_reduce(train_loss, op=dist.ReduceOp.AVG)
         tokens_per_second = ddp_world_size * cfg.training.batch_size * cfg.training.sequence_length / (t1 - t0)
         
+        # Log training loss to wandb
+        if master_process:
+            wandb.log({
+                "train_loss": train_loss.item(),
+                "lr_scale": lr_scale,
+                "tokens_per_second": tokens_per_second,
+                "step": step + 1
+            })
+        
+        # Update progress bar
+        if master_process:
+            progress.update(task, advance=1, description=f"[bold blue]Training (loss: {train_loss.item():.4f}, lr: {lr_scale:.2e})")
+        
+        # Detailed logging every N steps
         if step % cfg.logging.log_every == 0:
             print0(f"step {step+1:4d}/{cfg.training.num_iterations} | "
                    f"train loss {train_loss.item():.4f} | "
@@ -205,6 +272,10 @@ def main(cfg: DictConfig):
                 f.write(f"s:{step} trl:{train_loss.item()}\n")
     
     print0(f"peak memory consumption: {torch.cuda.max_memory_allocated() // 1024 // 1024} MiB")
+    
+    # Close progress bar
+    if master_process:
+        progress.stop()
     
     # Clean up
     dist.destroy_process_group()
