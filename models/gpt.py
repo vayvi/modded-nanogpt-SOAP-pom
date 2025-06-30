@@ -67,7 +67,7 @@ class CausalSelfPoM(nn.Module):
         self.n_head = n_head
         self.n_embd = n_embd
         self.head_dim = self.n_embd // self.n_head
-        self.pom = pom.PoM(self.n_embd, self.degree, self.expand, False)
+        self.pom = pom.PoM(self.n_embd, self.degree, self.expand, self.n_head, False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, T, C = x.size()

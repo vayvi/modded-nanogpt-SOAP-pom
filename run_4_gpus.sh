@@ -4,6 +4,7 @@
 export WANDB_MODE=offline
 
 torchrun --standalone --nproc_per_node=4 train.py \
-    experiment=pomgpt_baseline \
+    experiment=pomgpt_multihead \
+    model.n_head=32 \
     training.batch_size=48 \
     training.accumulation=2
