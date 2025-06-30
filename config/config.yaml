@@ -3,11 +3,12 @@ defaults:
   - optimizer: soap
   - data: fineweb
   - _self_
+  - experiment: ???
 
 # Training configuration
 training:
-  batch_size: 32
-  accumulation: 16
+  batch_size: 48
+  accumulation: 2
   sequence_length: 1024
   num_iterations: 7000
   learning_rate: 0.0018

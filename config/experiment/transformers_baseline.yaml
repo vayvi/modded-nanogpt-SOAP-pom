@@ -1,0 +1,9 @@
+# @package _global_
+
+defaults:
+  - override /model: transformer
+
+
+training:
+  batch_size: 48
+  accumulation: 8

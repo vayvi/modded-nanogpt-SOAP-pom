@@ -91,7 +91,7 @@ def main(cfg: DictConfig):
     x, y = train_loader.next_batch()
     
     # Initialize model using Hydra instantiate
-    model = instantiate(cfg.model)
+    model = instantiate(cfg.model.gpt)
     model = model.cuda()
     
     if hasattr(config, "coordinate_descent_tuning"):

@@ -1,4 +1,4 @@
-_target_: optimizers.soap_optimizer.SOAPOptimizer
+_target_: models.optimizers.soap_optimizer.SOAPOptimizer
 
 lr: 0.0018
 betas: [0.95, 0.95]

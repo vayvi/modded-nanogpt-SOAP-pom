@@ -1,5 +1,5 @@
 import torch
-from optimizers.soap import SOAP
+from models.optimizers.soap import SOAP
 
 
 class SOAPOptimizer:

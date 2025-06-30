@@ -74,6 +74,38 @@ class CausalSelfPoM(nn.Module):
         mask = torch.tril(torch.ones((T, T))).unsqueeze(0)
         return self.pom(x, x, mask)
 
+class CausalSelfAttention(nn.Module):
+
+    def __init__(self, n_embd, degree, expand, n_head):
+        super().__init__()
+        self.degree = degree
+        self.expand = expand
+        self.n_head = n_head
+        self.n_embd = n_embd
+        self.head_dim = self.n_embd // self.n_head
+        assert self.n_embd % self.n_head == 0
+        # key, query, value projections for all heads, but in a batch
+        self.c_attn = nn.Linear(self.n_embd, 3 * self.n_embd, bias=False)
+        # output projection
+        self.c_proj = nn.Linear(self.n_embd, self.n_embd, bias=False)
+        self.rotary = Rotary(self.head_dim)
+
+    def forward(self, x):
+        B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
+        # calculate query, key, values for all heads in batch and move head forward to be the batch dim
+        qkv = self.c_attn(x)
+        q, k, v = qkv.split(self.n_embd, dim=2)
+        k = k.view(B, T, self.n_head, self.head_dim)
+        q = q.view(B, T, self.n_head, self.head_dim)
+        v = v.view(B, T, self.n_head, self.head_dim)
+        cos, sin = self.rotary(q)
+        q = apply_rotary_emb(q, cos, sin)
+        k = apply_rotary_emb(k, cos, sin)
+        y = F.scaled_dot_product_attention(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), is_causal=True)
+        y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
+        # output projection
+        y = self.c_proj(y)
+        return y
 
 class MLP(nn.Module):
     """Multi-layer perceptron block."""
@@ -93,9 +125,9 @@ class MLP(nn.Module):
 class Block(nn.Module):
     """Transformer block with PoM attention and MLP."""
     
-    def __init__(self, n_embd, degree, expand, n_head, n_layer):
+    def __init__(self, mixing_layer, n_embd, n_layer):
         super().__init__()
-        self.attn = CausalSelfPoM(n_embd, degree, expand, n_head)
+        self.attn = mixing_layer #CausalSelfPoM(n_embd, degree, expand, n_head)
         self.mlp = MLP(n_embd)
         self.attn_scale = (1 / (2 * n_layer)**0.5)
 
@@ -108,19 +140,17 @@ class Block(nn.Module):
 class GPT(nn.Module):
     """GPT model with Polynomial Mixer attention."""
     
-    def __init__(self, vocab_size: int = 50257, n_layer: int = 12, n_head: int = 12, degree: int = 2, expand: int = 2, n_embd: int = 768):
+    def __init__(self, mixing_layer, vocab_size: int = 50257, n_layer: int = 12, n_head: int = 12, n_embd: int = 768):
         super().__init__()
         self.vocab_size = vocab_size
         self.n_layer = n_layer
         self.n_head = n_head
-        self.degree = degree
-        self.expand = expand
         self.n_embd = n_embd
         self.head_dim = self.n_embd // self.n_head
 
         self.transformer = nn.ModuleDict(dict(
             wte=nn.Embedding(self.vocab_size, self.n_embd),
-            h=nn.ModuleList([Block(self.n_embd, self.degree, self.expand, self.n_head, self.n_layer) for _ in range(self.n_layer)]),
+            h=nn.ModuleList([Block(mixing_layer, self.n_embd, self.n_layer) for _ in range(self.n_layer)]),
         ))
         self.lm_head = nn.Linear(self.n_embd, self.vocab_size, bias=False)
         self.transformer.wte.weight = self.lm_head.weight  # weight tying
@@ -183,9 +213,9 @@ class GPT(nn.Module):
         Returns:
             Combined optimizer
         """
-        from optimizers.combined_optimizer import CombinedOptimizer
-        from optimizers.adamw_optimizer import AdamWOptimizer
-        from optimizers.soap import SOAP  # Import raw SOAP class
+        from models.optimizers.combined_optimizer import CombinedOptimizer
+        from models.optimizers.adamw_optimizer import AdamWOptimizer
+        from models.optimizers.soap import SOAP  # Import raw SOAP class
         
         # Create optimizers for different parameter groups
         optimizers = []
