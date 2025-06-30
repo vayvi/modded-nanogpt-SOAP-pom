@@ -84,7 +84,7 @@ def main(cfg: DictConfig):
     dict_cfg = OmegaConf.to_container(cfg, resolve=True)
     
     # Set up wandb
-    wandb.init(project="pom_archi", entity="imaginelab", config=dict_cfg)
+    wandb.init(project="pom_archi", entity="imaginelab", config=dict_cfg, name=cfg.experiment_name)
     
     # Set up distributed training
     assert torch.cuda.is_available()
