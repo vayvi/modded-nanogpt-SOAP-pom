@@ -36,7 +36,7 @@ for num_head in num_heads:
         }
 
         exp_modifier = {
-            "experiment": "pomgpt_baseline_multihead",
+            "experiment": "pomgpt_multihead",
             "model.n_head": num_head,
             "training.batch_size": 48,
             "training.accumulation": 2,

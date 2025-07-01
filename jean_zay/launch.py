@@ -67,7 +67,7 @@ class JeanZayExperiment:
                         hydra_modifiers.append(f" {hydra_arg} {value}")
                     else:
                         hydra_modifiers.append(f" {hydra_arg}={value}")
-                command = f"torchrun --nproc_per_node={self.num_gpus_per_node} {self.cmd_path} {''.join(hydra_modifiers)}"
+                command = f"torchrun --standalone --nproc_per_node={self.num_gpus_per_node} {self.cmd_path} {''.join(hydra_modifiers)}"
                 self.cmds.append(command)
                 print(f"Prepared command: {command}")
             # Set slurm_array_nb_jobs based on the list length
@@ -92,7 +92,7 @@ class JeanZayExperiment:
                     hydra_modifiers.append(f" {hydra_arg} {value}")
                 else:
                     hydra_modifiers.append(f" {hydra_arg}={value}")
-            self.cmd = f"python {self.cmd_path} {''.join(hydra_modifiers)}"
+            self.cmd = f"torchrun --standalone --nproc_per_node={self.num_gpus_per_node} {self.cmd_path} {''.join(hydra_modifiers)}"
             if self.slurm_array_nb_jobs is not None:
                 print(
                     f"Built base command for numeric array ({self.slurm_array_nb_jobs} jobs): srun {self.cmd}"
@@ -169,7 +169,7 @@ class JeanZayExperiment:
             )
             print(f"Launching on qos {qos_name}")
 
-        local_slurmfolder = Path("cad/checkpoints") / Path(self.expname) / Path("slurm")
+        local_slurmfolder = Path("slurm_logs") / Path(self.expname)
         local_slurmfolder.mkdir(parents=True, exist_ok=True)
 
         array_string = ""
@@ -218,7 +218,7 @@ class JeanZayExperiment:
         self.slurm_script_path = slurm_path
 
         # Construct and store output/error paths with separate directories per task
-        slurm_output_base_dir = f"/lustre/fswork/projects/rech/syq/uey53ph/diffusion/{local_slurmfolder}/job_%j{job_suffix}"
+        slurm_output_base_dir = f"/lustre/fswork/projects/rech/syq/uey53ph/modded_gpt/{local_slurmfolder}/job_%j{job_suffix}"
         # Use %a for array task ID to create per-task subdirectories
         self.slurm_out_path = f"{slurm_output_base_dir}/task_%a/std.out"
         self.slurm_err_path = f"{slurm_output_base_dir}/task_%a/std.err"
