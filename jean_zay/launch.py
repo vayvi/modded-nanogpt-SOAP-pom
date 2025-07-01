@@ -275,9 +275,9 @@ class JeanZayExperiment:
 #SBATCH --signal=SIGUSR1@90
 module purge
 {module_load_directive}
-source /lustre/fswork/projects/rech/syq/uey53ph/.venvs/diffusion/bin/activate
+source /lustre/fswork/projects/rech/syq/uey53ph/.venvs/modded_gpt/bin/activate
 
-export PYTHONPATH=/lustre/fswork/projects/rech/syq/uey53ph/.venvs/diffusion/bin/activate
+export PYTHONPATH=/lustre/fswork/projects/rech/syq/uey53ph/.venvs/modded_gpt/bin/activate
 export TRANSFORMERS_OFFLINE=1 # to avoid downloading
 export HYDRA_FULL_ERROR=1 # to have the full traceback
 export WANDB_CACHE_DIR=$NEWSCRATCH/wandb_cache
