@@ -13,7 +13,7 @@ training:
   num_iterations: 1500
   learning_rate: 0.0018
   warmup_iters: 250
-  warmdown_iters: 2000
+  warmdown_iters: 0
   weight_decay: 0.5
 
 # Evaluation configuration
