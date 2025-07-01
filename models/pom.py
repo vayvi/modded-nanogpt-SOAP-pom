@@ -214,11 +214,11 @@ class PoM(nn.Module):
         self.order = degree
         self.order_expand = expand
         self.n_head = n_head
-        assert dim * degree * expand % n_head == 0, "dim * degree * expand must be divisible by n_head"
+        assert dim % n_head == 0, "dim must be divisible by n_head for group conv"
         self.head_dim = dim * degree * expand // n_head
         
         # Linear projections
-        self.po_proj = nn.Linear(dim, degree * expand * dim, bias=bias)
+        self.po_proj = nn.Conv1d(dim, degree * expand * dim, kernel_size=1, bias=bias, groups=self.n_head)
         self.se_proj = nn.Linear(dim, self.head_dim, bias=bias)
         self.ag_proj = nn.Linear(degree * expand * dim, dim, bias=bias)
         self.pom = pom
@@ -240,7 +240,7 @@ class PoM(nn.Module):
             xc = xq  # self-attention
 
         s = self.se_proj(xq)
-        h = self.po_proj(xc)
+        h = self.po_proj(xc.transpose(1, 2)).transpose(1, 2)
         sh = self.pom(s, h, self.order, self.n_head, mask)
 
         return self.ag_proj(sh)
