@@ -35,8 +35,12 @@ def count_parameters(model, print_breakdown=True):
         component_params = {}
         # Group parameters by submodule (detailed)
         submodule_params = {}
+        # Store all parameter names for debugging
+        all_param_names = []
         
         for name, param in model.named_parameters():
+            all_param_names.append(name)
+            
             # Extract component name (first part before first dot)
             component = name.split('.')[0] if '.' in name else name
             
@@ -59,18 +63,33 @@ def count_parameters(model, print_breakdown=True):
                 submodule_params[submodule] = 0
             submodule_params[submodule] += param.numel()
         
+        # Print sample parameter names for debugging
+        print("SAMPLE PARAMETER NAMES (first 10):")
+        print("-"*60)
+        for name in sorted(all_param_names)[:10]:
+            print(f"  {name}")
+        if len(all_param_names) > 10:
+            print(f"  ... and {len(all_param_names) - 10} more")
+        
         # Create hierarchical summaries
-        hierarchical_summaries = create_hierarchical_summaries(submodule_params, total_params)
+        try:
+            hierarchical_summaries = create_hierarchical_summaries(submodule_params, total_params)
+        except Exception as e:
+            print(f"Error creating hierarchical summaries: {e}")
+            hierarchical_summaries = {}
         
         # Print high-level breakdown
-        print("HIGH-LEVEL COMPONENTS:")
+        print("\nHIGH-LEVEL COMPONENTS:")
         print("-"*60)
         for component, params in sorted(component_params.items()):
             percentage = (params / total_params) * 100
             print(f"{component:<20}: {params:>12,} parameters ({percentage:>5.1f}%)")
         
         # Print hierarchical summaries
-        print_hierarchical_summaries(hierarchical_summaries)
+        try:
+            print_hierarchical_summaries(hierarchical_summaries)
+        except Exception as e:
+            print(f"Error printing hierarchical summaries: {e}")
         
         # Print detailed submodule breakdown
         print("\nDETAILED SUBMODULE BREAKDOWN:")
@@ -134,6 +153,7 @@ def create_hierarchical_summaries(submodule_params, total_params):
 def print_hierarchical_summaries(hierarchical_summaries):
     """Print hierarchical parameter summaries organized by pattern type."""
     if not hierarchical_summaries:
+        print("\nNo hierarchical summaries found.")
         return
         
     print("\nHIERARCHICAL PARAMETER SUMMARIES:")
@@ -145,14 +165,16 @@ def print_hierarchical_summaries(hierarchical_summaries):
     for prefix, info in hierarchical_summaries.items():
         parts = prefix.split('.')
         
-        # Determine the pattern type
-        if len(parts) >= 2 and parts[1] == 'h' and parts[2].isdigit():
+        # Determine the pattern type with proper bounds checking
+        if len(parts) >= 3 and parts[1] == 'h' and parts[2].isdigit():
             # Transformer layer pattern (e.g., transformer.h.0, transformer.h.1)
             if len(parts) == 3:
                 pattern_type = "transformer_layers"
             elif len(parts) >= 4:
                 layer_component = parts[3]
                 pattern_type = f"transformer_{layer_component}"
+            else:
+                pattern_type = "transformer_other"
         elif 'embed' in prefix.lower():
             pattern_type = "embeddings"
         elif 'head' in prefix.lower() or 'lm_head' in prefix.lower():
@@ -165,15 +187,28 @@ def print_hierarchical_summaries(hierarchical_summaries):
         pattern_groups[pattern_type].append((prefix, info))
     
     # Print each pattern group
+    total_hierarchical_params = sum(h['params'] for h in hierarchical_summaries.values())
+    
     for pattern_type, items in sorted(pattern_groups.items()):
         print(f"\n{pattern_type.replace('_', ' ').title()}:")
         
         # Sort items within each group
         sorted_items = sorted(items, key=lambda x: (x[1]['depth'], x[0]))
         
+        # Calculate total params for this group
+        group_total_params = sum(item[1]['params'] for item in items)
+        
         for prefix, info in sorted_items:
-            percentage = (info['params'] / sum(item[1]['params'] for item in items)) * 100 if len(items) > 1 else 100
-            total_percentage = (info['params'] / sum(h['params'] for h in hierarchical_summaries.values())) * 100
+            # Calculate percentages safely
+            if group_total_params > 0:
+                group_percentage = (info['params'] / group_total_params) * 100
+            else:
+                group_percentage = 0.0
+                
+            if total_hierarchical_params > 0:
+                total_percentage = (info['params'] / total_hierarchical_params) * 100
+            else:
+                total_percentage = 0.0
             
             # Count unique components
             submodule_count = len(info['submodules'])
@@ -186,7 +221,10 @@ def print_hierarchical_summaries(hierarchical_summaries):
                     parts = submod.split('.')
                     for i, part in enumerate(parts):
                         if part == 'h' and i + 1 < len(parts) and parts[i + 1].isdigit():
-                            layer_nums.append(int(parts[i + 1]))
+                            try:
+                                layer_nums.append(int(parts[i + 1]))
+                            except (ValueError, IndexError):
+                                pass
                             break
                 if layer_nums:
                     layer_range = f"[{min(layer_nums)}-{max(layer_nums)}]" if len(set(layer_nums)) > 1 else f"[{layer_nums[0]}]"
