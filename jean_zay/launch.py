@@ -218,7 +218,7 @@ class JeanZayExperiment:
         self.slurm_script_path = slurm_path
 
         # Construct and store output/error paths with separate directories per task
-        slurm_output_base_dir = f"/lustre/fswork/projects/rech/syq/uey53ph/modded_gpt/{local_slurmfolder}/job_%j{job_suffix}"
+        slurm_output_base_dir = f"/lustre/fswork/projects/rech/syq/uey53ph/modded-nanogpt-SOAP-pom/{local_slurmfolder}/job_%j{job_suffix}"
         # Use %a for array task ID to create per-task subdirectories
         self.slurm_out_path = f"{slurm_output_base_dir}/task_%a/std.out"
         self.slurm_err_path = f"{slurm_output_base_dir}/task_%a/std.err"

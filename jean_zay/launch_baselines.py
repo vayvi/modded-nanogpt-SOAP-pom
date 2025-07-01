@@ -25,7 +25,7 @@ for model_name, model_override in models.items():
         job_name = f"baselines"
         jz_exp = JeanZayExperiment(exp_name, job_name)
         jz_exp.nodes = 1
-        jz_exp.num_gpus_per_node = 1
+        jz_exp.num_gpus_per_node = 4
         jz_exp.qos = "dev"
         jz_exp.account = "syq"
         jz_exp.gpu_type = "h100"
