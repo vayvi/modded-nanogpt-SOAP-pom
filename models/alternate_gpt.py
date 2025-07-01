@@ -10,8 +10,8 @@ class AlternateGPT(GPT):
         Args:
             pom_to_sa_ratio: Ratio of PoM to self-attention layers (default 5 = 1 sa layer to 5 pom layers)
         """
-        if n_layer % (pom_to_sa_ratio + 1) != 0:
-            raise ValueError(f"n_layer must be a multiple of (pom_to_sa_ratio + 1) for proper hybrid ratio, got {n_layer}")
+        # if n_layer % (pom_to_sa_ratio + 1) != 0:
+        #     raise ValueError(f"n_layer must be a multiple of (pom_to_sa_ratio + 1) for proper hybrid ratio, got {n_layer}")
         
         if mixing_layer_alternate is None:
             mixing_layer_alternate = CausalSelfAttention(n_embd, degree, expand, n_head)
