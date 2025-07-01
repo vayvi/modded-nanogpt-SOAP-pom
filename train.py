@@ -16,7 +16,7 @@ import wandb
 from rich.progress import Progress, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn, MofNCompleteColumn, SpinnerColumn, ProgressColumn
 from rich.console import Console
 from rich.text import Text
-
+from count_params import count_parameters
 from data import DistributedDataLoader
 
 # Set float32 matmul precision to match reference implementation
@@ -74,52 +74,6 @@ def get_lr(step: int, num_iterations: int, warmup_iters: int, warmdown_iters: in
     else:
         decay_ratio = (num_iterations - step) / warmdown_iters
         return decay_ratio
-
-
-def count_parameters(model, print_breakdown=True):
-    """
-    Count the number of parameters in the model and optionally print a breakdown.
-    
-    Args:
-        model: PyTorch model
-        print_breakdown: Whether to print detailed parameter breakdown
-        
-    Returns:
-        total_params: Total number of parameters
-        trainable_params: Number of trainable parameters
-    """
-    total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    
-    if print_breakdown:
-        print0("\n" + "="*50)
-        print0("MODEL PARAMETER BREAKDOWN")
-        print0("="*50)
-        
-        # Group parameters by component
-        component_params = {}
-        
-        for name, param in model.named_parameters():
-            # Extract component name (first part before first dot)
-            component = name.split('.')[0] if '.' in name else name
-            
-            if component not in component_params:
-                component_params[component] = 0
-            component_params[component] += param.numel()
-        
-        # Print breakdown
-        for component, params in component_params.items():
-            percentage = (params / total_params) * 100
-            print0(f"{component:<15}: {params:>12,} parameters ({percentage:>5.1f}%)")
-        
-        print0("-"*50)
-        print0(f"{'Total':<15}: {total_params:>12,} parameters (100.0%)")
-        print0(f"{'Trainable':<15}: {trainable_params:>12,} parameters")
-        print0(f"{'Memory (fp32)':<15}: {total_params * 4 / 1024**2:>8.1f} MB")
-        print0(f"{'Memory (bf16)':<15}: {total_params * 2 / 1024**2:>8.1f} MB")
-        print0("="*50)
-    
-    return total_params, trainable_params
 
 
 @hydra.main(version_base=None, config_path="config", config_name="config")
