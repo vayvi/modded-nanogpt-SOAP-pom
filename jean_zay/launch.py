@@ -95,10 +95,10 @@ class JeanZayExperiment:
             self.cmd = f"torchrun --standalone --nproc_per_node={self.num_gpus_per_node} {self.cmd_path} {''.join(hydra_modifiers)}"
             if self.slurm_array_nb_jobs is not None:
                 print(
-                    f"Built base command for numeric array ({self.slurm_array_nb_jobs} jobs): srun {self.cmd}"
+                    f"Built base command for numeric array ({self.slurm_array_nb_jobs} jobs): {self.cmd}"
                 )
             else:
-                print(f"Built single command: srun {self.cmd}")
+                print(f"Built single command: {self.cmd}")
 
     def launch(self, debug=False):
         if debug:
@@ -244,12 +244,12 @@ class JeanZayExperiment:
             srun_command_line = (
                 f"COMMAND_INDEX=$((SLURM_ARRAY_TASK_ID - {start_index}))\n"
                 f'echo "Running command index $COMMAND_INDEX: ${{CMDS[$COMMAND_INDEX]}}"\n'
-                f"srun ${{CMDS[$COMMAND_INDEX]}}"
+                f"${{CMDS[$COMMAND_INDEX]}}"
             )
 
         elif self.cmd:
             # Existing single command execution
-            srun_command_line = f"srun {self.cmd}"
+            srun_command_line = f"{self.cmd}"
         else:
             # This case should ideally not be reached if build_cmd was called
             raise ValueError(
