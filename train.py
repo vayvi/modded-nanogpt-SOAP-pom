@@ -378,7 +378,6 @@ def main(cfg: DictConfig):
             
             # Generate text samples (only on master process to avoid duplicate generations)
             if master_process:
-                print0("Generating text samples...")
                 val_loader.reset()  # Reset val loader for sampling
                 
                 # Configure sampling parameters - can be added to config later
@@ -386,6 +385,7 @@ def main(cfg: DictConfig):
                 should_sample = (step % sample_every == 0) or last_step
                 
                 if should_sample:
+                    print0("Generating text samples...")
                     # Reset validation loader to ensure consistent prompts across steps
                     val_loader.reset()
                     # Force the loader to the beginning and get a consistent state
