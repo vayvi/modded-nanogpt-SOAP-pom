@@ -96,7 +96,13 @@ def sample_from_model(model, prompt_tokens=None, max_new_tokens=64, temperature=
     Returns:
         Tensor of generated tokens including prompt
     """
-    model.eval()
+    # Get the original model (unwrap from compilation if needed)
+    original_model = model
+    if hasattr(model, '_orig_mod'):
+        # If the model is compiled, use the original uncompiled version for sampling
+        original_model = model._orig_mod
+    
+    original_model.eval()
     
     # Initialize tokenizer
     enc = tiktoken.get_encoding("gpt2")
@@ -108,11 +114,14 @@ def sample_from_model(model, prompt_tokens=None, max_new_tokens=64, temperature=
             # Start with end of text token for unconditional generation
             tokens = torch.tensor([[eot]], dtype=torch.long, device=device)
         else:
-            tokens = prompt_tokens.clone()
+            tokens = prompt_tokens.clone().contiguous()  # Ensure contiguous memory layout
         
         for _ in range(max_new_tokens):
-            # Forward pass
-            logits, _ = model(tokens, targets=None, return_logits=True)
+            # Ensure tokens are contiguous before forward pass
+            tokens = tokens.contiguous()
+            
+            # Forward pass with original (uncompiled) model
+            logits, _ = original_model(tokens, targets=None, return_logits=True)
             logits = logits[:, -1, :] / temperature  # Take last token and apply temperature
             
             # Apply top-k filtering
@@ -124,8 +133,8 @@ def sample_from_model(model, prompt_tokens=None, max_new_tokens=64, temperature=
             probs = torch.softmax(logits, dim=-1)
             next_token = torch.multinomial(probs, num_samples=1, generator=generator)
             
-            # Append to sequence
-            tokens = torch.cat([tokens, next_token], dim=1)
+            # Append to sequence and ensure contiguous layout
+            tokens = torch.cat([tokens, next_token], dim=1).contiguous()
             
             # Stop if we generate EOT token (except for the first token)
             if tokens.shape[1] > 1 and next_token.item() == eot:
@@ -134,7 +143,9 @@ def sample_from_model(model, prompt_tokens=None, max_new_tokens=64, temperature=
     # Clear GPU memory cache after sampling
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
-    model.train()
+    
+    # Restore training mode for the original model
+    original_model.train()
     return tokens
 
 
