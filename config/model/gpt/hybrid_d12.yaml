@@ -14,3 +14,5 @@ model:
     n_head: ${model.n_head}
     n_embd: ${model.n_embd}
     pom_to_sa_ratio: ${model.pom_to_sa_ratio}
+    mup_enabled: ${mup.enabled}
+    mup_config: ${mup.cfg}

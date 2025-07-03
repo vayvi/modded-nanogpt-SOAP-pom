@@ -3,6 +3,7 @@ import sys
 import uuid
 import time
 from pathlib import Path
+from functools import partial
 
 import numpy as np
 import torch
@@ -291,7 +292,6 @@ def main(cfg: DictConfig):
     print0(f"Validation DataLoader: total number of tokens: {val_loader.ntok_total} across {len(val_loader.files)} files")
     
     x, y = train_loader.next_batch()
-    
     # Initialize model using Hydra instantiate
     model = instantiate(cfg.model.gpt)
     model = model.cuda()
@@ -362,7 +362,28 @@ def main(cfg: DictConfig):
     # Training loop
     for step in range(cfg.training.num_iterations + 1):
         last_step = (step == cfg.training.num_iterations)
-        
+        if cfg.mup.cfg.enable_coord_check_logging:
+            coord_check_dict = {
+                'token_embedding': [],
+                'attn': [],
+                'mlp': [],
+                'lm_head': [],
+            }
+            def hook(module, input, output, key):
+                with torch.no_grad():
+                    coord_check_dict[key].append(output.abs().mean().item())
+            coord_check_handles = []
+            for module_name, module in model.named_modules():
+                if module_name == 'transformer.wte':
+                    coord_check_handles.append(module.register_forward_hook(partial(hook, key='token_embedding')))
+                elif module_name.endswith('.attn'):
+                    coord_check_handles.append(module.register_forward_hook(partial(hook, key='attn')))
+                elif module_name.endswith('.mlp'):
+                    coord_check_handles.append(module.register_forward_hook(partial(hook, key='mlp')))
+                elif module_name == 'lm_head':
+                    coord_check_handles.append(module.register_forward_hook(partial(hook, key='lm_head')))
+        else:
+            coord_check_dict = None
         # Validation
         if (last_step or (cfg.evaluation.val_loss_every > 0 and step % cfg.evaluation.val_loss_every == 0)):
             model.eval()
@@ -375,7 +396,7 @@ def main(cfg: DictConfig):
                     val_loss += loss
             dist.all_reduce(val_loss, op=dist.ReduceOp.AVG)
             val_loss /= cfg.evaluation.val_max_steps
-            
+
             # Generate text samples (only on master process to avoid duplicate generations)
             if master_process:
                 val_loader.reset()  # Reset val loader for sampling
@@ -456,6 +477,10 @@ def main(cfg: DictConfig):
             if master_process and logfile is not None:
                 with open(logfile, "a") as f:
                     f.write(f"s:{step} tel:{val_loss}\n")
+            # muP coord check logging
+            if cfg.mup.cfg.enable_coord_check_logging and coord_check_dict is not None:
+                for key in coord_check_dict:
+                    wandb.log({key + '_act_abs_mean': np.mean(coord_check_dict[key])})
         
         # Save checkpoint
         if master_process and (last_step or (cfg.evaluation.save_every > 0 and step % cfg.evaluation.save_every == 0)):
@@ -469,7 +494,6 @@ def main(cfg: DictConfig):
         
         if last_step:
             break
-        
         torch.cuda.synchronize()
         t0 = time.time()
         

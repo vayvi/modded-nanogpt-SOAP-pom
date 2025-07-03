@@ -77,7 +77,7 @@ class CausalSelfPoM(nn.Module):
 
 class CausalSelfAttention(nn.Module):
 
-    def __init__(self, n_embd, degree, expand, n_head):
+    def __init__(self, n_embd, degree, expand, n_head, mup_enabled=False):
         super().__init__()
         self.degree = degree
         self.expand = expand
@@ -90,6 +90,7 @@ class CausalSelfAttention(nn.Module):
         # output projection
         self.c_proj = nn.Linear(self.n_embd, self.n_embd, bias=False)
         self.rotary = Rotary(self.head_dim)
+        self.mup_enabled = mup_enabled
 
     def forward(self, x):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
@@ -102,7 +103,11 @@ class CausalSelfAttention(nn.Module):
         cos, sin = self.rotary(q)
         q = apply_rotary_emb(q, cos, sin)
         k = apply_rotary_emb(k, cos, sin)
-        y = F.scaled_dot_product_attention(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), is_causal=True)
+        if self.mup_enabled:
+            attention_scale = 1.0 / k.size(-1)
+            y = F.scaled_dot_product_attention(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), is_causal=True, scale=attention_scale)
+        else:
+            y = F.scaled_dot_product_attention(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), is_causal=True)
         y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
         # output projection
         y = self.c_proj(y)
@@ -129,6 +134,7 @@ class Block(nn.Module):
     def __init__(self, mixing_layer, n_embd, n_layer):
         super().__init__()
         self.attn = deepcopy(mixing_layer) #CausalSelfPoM(n_embd, degree, expand, n_head)
+
         # Reinitialize with pytorch defaults
         for module in self.modules():
             if isinstance(module, nn.Linear):
@@ -157,7 +163,7 @@ class Block(nn.Module):
 class GPT(nn.Module):
     """GPT model with Polynomial Mixer attention."""
     
-    def __init__(self, mixing_layer, vocab_size: int = 50257, n_layer: int = 12, n_head: int = 12, n_embd: int = 768):
+    def __init__(self, mixing_layer, vocab_size: int = 50257, n_layer: int = 12, n_head: int = 12, n_embd: int = 768, mup_enabled: bool = False, mup_config=None):
         super().__init__()
         self.vocab_size = vocab_size
         self.n_layer = n_layer
@@ -172,6 +178,15 @@ class GPT(nn.Module):
         self.lm_head = nn.Linear(self.n_embd, self.vocab_size, bias=False)
         self.transformer.wte.weight = self.lm_head.weight  # weight tying
         self.rotary = Rotary(self.head_dim)
+        self.mup_enabled = mup_enabled
+        self.mup_config = mup_config
+        if self.mup_enabled: # change initialization for some params
+            for pn, p in self.named_parameters():
+                # Adjust hidden weight initialization variance by 1 / mup_width_multiplier
+                if pn.endswith('c_attn.weight') or pn.endswith('c_fc.weight') or pn.endswith('po_proj.weight') or pn.endswith('se_proj.weight') or pn.endswith('ag_proj.weight'):
+                    torch.nn.init.normal_(p, mean=0.0, std=self.mup_config.init_std / math.sqrt(self.mup_config.width_multiplier))
+                elif pn.endswith('c_proj.weight'):
+                    torch.nn.init.normal_(p, mean=0.0, std=self.mup_config.init_std / math.sqrt(2 * self.n_layer * self.mup_config.width_multiplier))
 
     def forward(self, idx: torch.Tensor, targets: torch.Tensor = None, return_logits: bool = True):
         """
@@ -196,12 +211,18 @@ class GPT(nn.Module):
         cos, sin = self.rotary(x)
         x = apply_rotary_emb(x, cos, sin)
         x = x.view(B, T, C)
-
+        if self.mup_enabled:
+            x *= self.mup_config.input_alpha
+        
         for block in self.transformer.h:
             x = block(x)
         x = rmsnorm(x)
 
         if targets is not None:
+            if self.mup_enabled:
+                # Scaling `x` instead of `logits` allows coord check to log change
+                x *= self.mup_config.output_alpha / self.mup_config.width_multiplier
+                
             # if we are given some desired targets also calculate the loss
             logits = self.lm_head(x)
             logits = logits.float()  # use tf32/fp32 for logits
@@ -227,14 +248,16 @@ class GPT(nn.Module):
             learning_rate: Learning rate
             betas: Adam betas
             
-        Returns:
-            Combined optimizer
+            Returns:
+                Combined optimizer
         """
         from models.optimizers.combined_optimizer import CombinedOptimizer
         from models.optimizers.adamw_optimizer import AdamWOptimizer
-        from models.optimizers.soap import SOAP  # Import raw SOAP class
+        from models.optimizers.soap import SOAP
+
+        param_dict = {pn: p for pn, p in self.named_parameters()}
+        param_dict = {pn: p for pn, p in param_dict.items() if p.requires_grad} # filter out those that do not require grad
         
-        # Create optimizers for different parameter groups
         optimizers = []
         
         # AdamW for lm_head parameters (wte weights are tied to lm_head, so we only include lm_head)
@@ -246,14 +269,69 @@ class GPT(nn.Module):
         )
         optimizers.append(lm_head_optimizer)
         
-        # SOAP for transformer layers - use raw SOAP class like reference
-        transformer_optimizer = SOAP(
-            self.transformer.h.parameters(),
-            lr=learning_rate,
-            betas=(0.95, 0.95),  # Fixed betas for SOAP
-            weight_decay=0,  # No weight decay for transformer layers
-            precondition_frequency=10  # Fixed precondition frequency
-        )
-        optimizers.append(transformer_optimizer)
+        if self.mup_enabled and not self.mup_config.disable_hidden_lr_scaling:
+            # MUP case: separate parameters by type for SOAP
+            mup_decay_params = []
+            decay_params = []
+            nodecay_params = []
+            
+            # Exclude lm_head parameters (already handled by AdamW above)
+            transformer_param_dict = {pn: p for pn, p in param_dict.items() if not pn.startswith('lm_head')}
+            
+            for n, p in transformer_param_dict.items():
+                if p.dim() >= 2:
+                    if n.endswith('c_attn.weight') or n.endswith('c_fc.weight') or n.endswith('c_proj.weight') or n.endswith('po_proj.weight') or n.endswith('se_proj.weight') or n.endswith('ag_proj.weight'):
+                        mup_decay_params.append(p)
+                    else:
+                        decay_params.append(p)
+                else:
+                    nodecay_params.append(p)
+            
+            num_mup_decay_params = sum(p.numel() for p in mup_decay_params)
+            num_decay_params = sum(p.numel() for p in decay_params)
+            num_nodecay_params = sum(p.numel() for p in nodecay_params)
+            print(f"num mup decayed parameter tensors: {len(mup_decay_params)}, with {num_mup_decay_params:,} parameters")
+            print(f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} parameters")
+            print(f"num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters")
+            
+            
+            # Create separate SOAP optimizers for each parameter group
+            mup_decay_optimizer = SOAP(
+                [{'params': mup_decay_params, 'weight_decay': weight_decay, 'lr_scale': 1/self.mup_config.width_multiplier}], # FIXME: may need to scale weight_decay as well
+                lr=learning_rate,
+                betas=(0.95, 0.95),
+                weight_decay=0, # FIXME: is it 0 or weight_decay?
+                precondition_frequency=10
+            )
+            optimizers.append(mup_decay_optimizer)
+            
+            decay_optimizer = SOAP(
+                [{'params': decay_params, 'weight_decay': weight_decay, 'lr_scale': 1}],
+                lr=learning_rate, 
+                betas=(0.95, 0.95),
+                weight_decay=0,
+                precondition_frequency=10
+            )
+            optimizers.append(decay_optimizer)
+            
+            nodecay_optimizer = SOAP(
+                [{'params': nodecay_params, 'weight_decay': 0.0, 'lr_scale': 1}],
+                lr=learning_rate,
+                betas=(0.95, 0.95), 
+                weight_decay=0,
+                precondition_frequency=10
+            )
+            optimizers.append(nodecay_optimizer)
+            
+        else:
+            # Non-MUP case: SOAP for transformer layers
+            transformer_optimizer = SOAP(
+                self.transformer.h.parameters(),
+                lr=learning_rate,
+                betas=(0.95, 0.95),  # Fixed betas for SOAP
+                weight_decay=0,  # No weight decay for transformer layers
+                precondition_frequency=10  # Fixed precondition frequency
+            )
+            optimizers.append(transformer_optimizer)
         
-        return CombinedOptimizer(optimizers) 
+        return CombinedOptimizer(optimizers)

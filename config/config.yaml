@@ -48,4 +48,16 @@ hardware:
   dtype: bfloat16
   compile: true 
 
+# muP config
+mup:
+  enabled: false
+  cfg:
+    disable_attention_scaling: false # Uses 1/sqrt(d_head) attn scaling instead of 1/d_head
+    disable_hidden_lr_scaling: false # Disables muP hidden LR adjustment
+    width_multiplier: 1.0 # mup_width_multiplier = width / base_width
+    input_alpha: 1.0 # Optional tunable multiplier applied to input embedding forward pass output
+    output_alpha: 1.0 # Optional tunable multiplier applied to output unembedding forward pass output
+    enable_coord_check_logging: false # If True will track the output.abs().mean() of various layers throughout training
+    init_std: 0.02 # Initialization std for muP
+
 experiment_name: baseline

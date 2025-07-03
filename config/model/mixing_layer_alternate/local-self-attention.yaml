@@ -4,3 +4,4 @@ degree: ${model.degree}
 expand: ${model.expand}
 n_head: ${model.n_head}
 attention_chunk_size: 128
+# TODO: mup support for local attention
