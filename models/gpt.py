@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import models.pom as pom
-
+import math
+from copy import deepcopy
 
 def rmsnorm(x0, eps=1e-6):
     """RMS normalization function (matching reference implementation)."""
@@ -67,7 +68,7 @@ class CausalSelfPoM(nn.Module):
         self.n_head = n_head
         self.n_embd = n_embd
         self.head_dim = self.n_embd // self.n_head
-        self.pom = pom.PoM(self.n_embd, self.degree, self.expand, False)
+        self.pom = pom.PoM(self.n_embd, self.degree, self.expand, self.n_head, False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, T, C = x.size()
@@ -127,7 +128,23 @@ class Block(nn.Module):
     
     def __init__(self, mixing_layer, n_embd, n_layer):
         super().__init__()
-        self.attn = mixing_layer #CausalSelfPoM(n_embd, degree, expand, n_head)
+        self.attn = deepcopy(mixing_layer) #CausalSelfPoM(n_embd, degree, expand, n_head)
+        # Reinitialize with pytorch defaults
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.kaiming_uniform_(module.weight, a=math.sqrt(5))
+                if module.bias is not None:
+                    fan_in, _ = nn.init._calculate_fan_in_and_fan_out(module.weight)
+                    bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
+                    nn.init.uniform_(module.bias, -bound, bound)
+            elif isinstance(module, nn.Conv1d):
+                nn.init.kaiming_uniform_(module.weight, a=math.sqrt(5))
+                if module.bias is not None:
+                    fan_in, _ = nn.init._calculate_fan_in_and_fan_out(module.weight)
+                    bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
+                    nn.init.uniform_(module.bias, -bound, bound)
+            elif isinstance(module, nn.Embedding):
+                nn.init.normal_(module.weight, mean=0, std=1)
         self.mlp = MLP(n_embd)
         self.attn_scale = (1 / (2 * n_layer)**0.5)
 
@@ -223,7 +240,7 @@ class GPT(nn.Module):
         # AdamW for lm_head parameters (wte weights are tied to lm_head, so we only include lm_head)
         lm_head_optimizer = AdamWOptimizer(
             self.lm_head.parameters(),
-            lr=0.0018,  # Fixed learning rate for lm_head
+            lr=learning_rate,
             betas=betas,
             weight_decay=0  # No weight decay for lm_head
         )
