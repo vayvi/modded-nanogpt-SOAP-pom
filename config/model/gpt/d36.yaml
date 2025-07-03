@@ -1,0 +1,14 @@
+# @package _global_
+
+model:
+  n_layer: 36
+  n_head: 1
+  n_embd: 1280
+
+  gpt:
+    _target_: models.gpt.GPT
+    mixing_layer: ${model.mixing_layer}
+    vocab_size: ${model.vocab_size}
+    n_layer: ${model.n_layer}
+    n_head: ${model.n_head}
+    n_embd: ${model.n_embd}

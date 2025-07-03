@@ -1,20 +1,125 @@
-# Modded-NanoGPT (SOAP optimizer experiments)
+# Modded-NanoGPT (SOAP optimizer experiments with Hydra Configuration)
 
 This is a fork of [Modded-NanoGPT](https://github.com/KellerJordan/modded-nanogpt) by Keller Jordan, which is a variant of the [PyTorch GPT-2 trainer](https://github.com/karpathy/llm.c/blob/7b929300217ff1a974b63791a228928b39b26409/train_gpt2.py) from
 Andrej Karpathy's [llm.c](https://github.com/karpathy/llm.c) repo. The original description is pasted at the end of this file.
 
+## Architecture & Configuration
+
+This repository has been refactored to use [Hydra](https://hydra.cc/) for configuration management, providing a modular and flexible way to configure experiments. The configuration system is organized as follows:
+
+### Configuration Structure
+
+```
+config/
+├── config.yaml              # Main configuration with defaults
+├── experiment/               # Pre-defined experiment configurations
+│   ├── pomgpt_baseline.yaml
+│   └── transformers_baseline.yaml
+├── model/                    # Model architecture configurations
+│   ├── pomgpt.yaml          # POM-based GPT configuration
+│   ├── transformer.yaml     # Standard transformer configuration
+│   ├── gpt/                 # GPT size configurations
+│   │   ├── d12.yaml         # 12-layer (124M parameters)
+│   │   ├── d24.yaml         # 24-layer 
+│   │   ├── d36.yaml         # 36-layer
+│   │   └── d48.yaml         # 48-layer
+│   └── mixing_layer/        # Mixing layer options
+│       ├── pom.yaml         # Polynomial mixing (POM)
+│       └── self-attention.yaml # Standard self-attention
+├── optimizer/               # Optimizer configurations
+│   ├── soap.yaml           # SOAP optimizer settings
+│   └── adamw.yaml          # AdamW optimizer settings
+├── data/                    # Dataset configurations
+│   └── fineweb.yaml        # FineWeb dataset settings
+└── training/                # Training configurations
+```
+
+### Usage
+
+#### Running Experiments
+
+To execute training with the default configuration:
+```bash
+pip install -r requirements.txt
+python data/cached_fineweb10B.py
+```
+
+**Single GPU:**
+```bash
+./run_single_gpu.sh
+```
+
+**Multi-GPU (4 GPUs):**
+```bash
+./run_4_gpus.sh
+```
+
+#### Configuration Override Examples
+
+You can override any configuration parameter via command line:
+
+```bash
+# Run with different optimizer
+torchrun --standalone --nproc_per_node=4 train.py \
+    experiment=pomgpt_baseline \
+    optimizer=adamw
+
+# Run with different model size
+torchrun --standalone --nproc_per_node=4 train.py \
+    experiment=pomgpt_baseline \
+    model.gpt=d24
+
+# Override training parameters
+torchrun --standalone --nproc_per_node=4 train.py \
+    experiment=pomgpt_baseline \
+    training.learning_rate=0.003 \
+    training.batch_size=32
+
+# Run standard transformer instead of POM
+torchrun --standalone --nproc_per_node=4 train.py \
+    experiment=transformers_baseline
+```
+
+#### Creating Custom Experiments
+
+Create new experiment files in `config/experiment/` to define reusable configurations:
+
+```yaml
+# config/experiment/my_experiment.yaml
+# @package _global_
+
+defaults:
+  - override /model: transformer
+  - override /optimizer: soap
+
+training:
+  learning_rate: 0.003
+  batch_size: 64
+```
+
+Then run with: `train.py experiment=my_experiment`
+
+### Benefits of Hydra Configuration
+
+- **Modularity**: Mix and match different components (models, optimizers, datasets) easily
+- **Reproducibility**: Complete configuration is logged and can be easily reproduced
+- **Experimentation**: Quick parameter sweeps and ablation studies via command-line overrides
+- **Organization**: Clean separation of concerns with logical config grouping
+- **Extensibility**: Easy to add new models, optimizers, or experiments without code changes
+
+## SOAP Optimizer Experiments
 
 We wanted to test how the new optimizer in Modded-NanoGPT compares to [SOAP](https://github.com/nikhilvyas/SOAP). So we run the code as it is with following changes:
 
-0. Baseline: The baseline loss from new optimizer was 3.279, with updated hyperparameters (https://x.com/kellerjordan0/status/1842616414894719310) it was reduced to 3.271. We have launched the below experiments with the hyperparams from the first runs, perhaps a slight improvement can be made with switching to the new hyperparams.
+0. **Baseline**: The baseline loss from new optimizer was 3.279, with updated hyperparameters (https://x.com/kellerjordan0/status/1842616414894719310) it was reduced to 3.271. We have launched the below experiments with the hyperparams from the first runs, perhaps a slight improvement can be made with switching to the new hyperparams.
 
-1. We replace OrthogonalNesterov optimizer with SOAP optimizer. We keep the usage of AdamW optimizer for first/last layer to make the comparison fairer. Hyperparams are: LR=.0018 (same as AdamW LR in Modded-NanoGPT in the first baseline), betas=(.95, .95) (SOAP default), weight_decay=0 (same as Modded-NanoGPT), precondition_frequency=10 (SOAP default). We get loss 3.2564, a slightly higher SOAP LR of .003 gives 3.2561.
+1. **SOAP Optimizer**: We replace OrthogonalNesterov optimizer with SOAP optimizer. We keep the usage of AdamW optimizer for first/last layer to make the comparison fairer. Hyperparams are: LR=.0018 (same as AdamW LR in Modded-NanoGPT in the first baseline), betas=(.95, .95) (SOAP default), weight_decay=0 (same as Modded-NanoGPT), precondition_frequency=10 (SOAP default). We get loss 3.2564, a slightly higher SOAP LR of .003 gives 3.2561.
 
-2. For a run with 10% lesser iterations we get a loss of 3.2702. But we note that this is only iterations and not wall clock time. While we estimate the overhead* (over non-fused AdamW) to be ~ 5 to 10% in 1gpu experiments from prior runs this needs to be confirmed. Re 1gpu vs multigpu the overhead of the optimizers can also be distributed as done in [DistributedShampoo](https://github.com/facebookresearch/optimizers/tree/main/distributed_shampoo), so we should expect similar overhead in 1 gpu vs multigpu experiments. This argument also applies to the new optimizer in Modded-NanoGPT, implying that the overhead for the new optimizer in Modded-NanoGPT should be < 1%.
+2. **Performance**: For a run with 10% lesser iterations we get a loss of 3.2702. But we note that this is only iterations and not wall clock time. While we estimate the overhead* (over non-fused AdamW) to be ~ 5 to 10% in 1gpu experiments from prior runs this needs to be confirmed. Re 1gpu vs multigpu the overhead of the optimizers can also be distributed as done in [DistributedShampoo](https://github.com/facebookresearch/optimizers/tree/main/distributed_shampoo), so we should expect similar overhead in 1 gpu vs multigpu experiments. This argument also applies to the new optimizer in Modded-NanoGPT, implying that the overhead for the new optimizer in Modded-NanoGPT should be < 1%.
 
-3. SOAP has a larger memory overhead, to reduce the overhead we have one-sided/factorized versions of SOAP in the [paper](https://arxiv.org/abs/2409.11321). We are currently running these experiments.
+3. **Memory Optimization**: SOAP has a larger memory overhead, to reduce the overhead we have one-sided/factorized versions of SOAP in the [paper](https://arxiv.org/abs/2409.11321). We are currently running these experiments.
 
-4. We are also planning to compare the two optimizers in the small batch size setting.
+4. **Future Work**: We are also planning to compare the two optimizers in the small batch size setting.
 
 *We are hoping to improve this with a lower precision implementation of SOAP.
 
@@ -30,16 +135,18 @@ Andrej Karpathy's [llm.c](https://github.com/karpathy/llm.c) repo. It:
 * Implements architectural modernizations (rotary embeddings and RMSNorm).
 * Implements a new optimizer.
 
-To execute the training, run the following three commands on an 8xA100 or 8xH100 node.
+To execute the training, run the following commands on an 8xA100 or 8xH100 node.
 They complete in <45min on an 8xH100 with decent internet connection.
 ```bash
 pip install -r requirements.txt
 python data/cached_fineweb10B.py
-./run.sh
+./run_4_gpus.sh  # For 4+ GPUs
+# or
+./run_single_gpu.sh  # For single GPU
 ```
 
 This will train a 124M-parameter transformer for 7000 steps on 3.67B tokens of Fineweb [1], achieving ~3.280 validation
-loss.
+loss with the modded-nanogpt optimizer or ~3.256 validation loss with SOAP optimizer.
 For comparison, the default llm.c PyTorch trainer yields [~3.285 validation loss after training for 10B tokens](https://github.com/karpathy/llm.c/discussions/481).
 
 ---

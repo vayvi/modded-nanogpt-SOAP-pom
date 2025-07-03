@@ -4,3 +4,7 @@ tiktoken
 torch
 datasets
 huggingface-hub
+hydra-core
+wandb
+rich
+einops

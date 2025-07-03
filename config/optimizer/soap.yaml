@@ -1,0 +1,14 @@
+_target_: models.optimizers.soap_optimizer.SOAPOptimizer
+
+lr: ${training.learning_rate}
+betas: [0.95, 0.95]
+shampoo_beta: -1
+eps: 1e-8
+weight_decay: 0.5
+precondition_frequency: 10
+max_precond_dim: 10000
+merge_dims: false
+precondition_1d: false
+normalize_grads: false
+data_format: channels_first
+correct_bias: true 

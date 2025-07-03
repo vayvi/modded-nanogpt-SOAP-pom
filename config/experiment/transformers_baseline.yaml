@@ -1,0 +1,11 @@
+# @package _global_
+
+defaults:
+  - override /model: transformer
+
+
+training:
+  batch_size: 48
+  accumulation: 8
+
+experiment_name: baseline_transformer
