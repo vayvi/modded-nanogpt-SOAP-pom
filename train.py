@@ -373,7 +373,7 @@ def main(cfg: DictConfig):
                 with torch.no_grad():
                     coord_check_dict[key].append(output.abs().mean().item())
             coord_check_handles = []
-            for module_name, module in model.named_modules():
+            for module_name, module in model.module.named_modules():
                 if module_name == 'transformer.wte':
                     coord_check_handles.append(module.register_forward_hook(partial(hook, key='token_embedding')))
                 elif module_name.endswith('.attn'):
